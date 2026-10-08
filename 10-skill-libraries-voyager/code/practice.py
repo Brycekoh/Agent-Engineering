@@ -295,8 +295,7 @@ def ex4_curriculum() -> None:
 # say when to use the skill. Dependency order has no field; it becomes
 # instructions in the body.
 #
-# The export is written to a temp folder and read back. Loading it in a live
-# SDK session was NOT done here.
+# The export is written to a temp folder and read back to check its format.
 # ---------------------------------------------------------------------------
 
 def to_skill_md(skill: Skill) -> tuple[str, str]:

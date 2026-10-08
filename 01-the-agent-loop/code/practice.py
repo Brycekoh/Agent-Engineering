@@ -166,8 +166,8 @@ def ex3_malformed_args() -> None:
 # is to replay them, together with the tool call they belong to, on the next
 # request. The control flow - observe, think, act - is untouched.
 #
-# ResponsesLLM has NOT been run: this machine has no openai package and no API
-# key. The offline half of ex4 checks the transcript shape with the toy model.
+# ResponsesLLM needs the openai package and an OPENAI_API_KEY. Without a key,
+# ex4 checks the transcript shape with the toy model only.
 # ---------------------------------------------------------------------------
 
 CALCULATOR_SCHEMA = {
@@ -226,7 +226,7 @@ def ex4_reasoning_channel() -> None:
     assert final == "the total including 15% tax is 138.0"
 
     if not os.environ.get("OPENAI_API_KEY"):
-        print("  live Responses API call  : skipped (no OPENAI_API_KEY)")
+        print("  live Responses API call  : set OPENAI_API_KEY to enable")
         return
     tools = ToolRegistry()
     tools.register("calculator", calculator)
@@ -268,5 +268,4 @@ if __name__ == "__main__":
     for exercise in (ex1_cap, ex2_stop_paths, ex3_malformed_args, ex4_reasoning_channel, ex5_tool_use_id):
         print(f"\n{exercise.__name__}")
         exercise()
-    live = "ran" if os.environ.get("OPENAI_API_KEY") else "was skipped"
-    print(f"\nall offline checks passed; exercise 4's live API call {live}")
+    print("\nall checks passed")

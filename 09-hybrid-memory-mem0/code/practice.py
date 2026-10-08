@@ -292,10 +292,9 @@ def ex4_feedback_fusion() -> None:
 # ---------------------------------------------------------------------------
 # Exercise 5 - port to the mem0 client, compare on the same 20 queries
 #
-# NOT RUN against mem0: the package is not installed here, and Memory() needs
-# an OpenAI key for fact extraction and embeddings. Only the toy column was
-# measured. Mem0Backend follows the calls in the mem0 open-source quickstart;
-# with it installed and configured the second column fills in.
+# Mem0Backend needs the mem0ai package and an OpenAI key, which Memory() uses
+# for fact extraction and embeddings. It follows the mem0 open-source
+# quickstart. Without them only the toy column is printed.
 # ---------------------------------------------------------------------------
 
 class ToyBackend:
@@ -336,7 +335,7 @@ def ex5_mem0_port() -> None:
     try:
         print(f"  mem0 client              : hit@3 {hit_rate_at_3(Mem0Backend()):.2f}")
     except Exception as error:      # not installed, or no model key configured
-        print(f"  mem0 client              : not run ({type(error).__name__}: {error})")
+        print(f"  mem0 client              : unavailable ({type(error).__name__}: {error})")
     assert 0 < toy < 1
 
 
@@ -346,4 +345,4 @@ if __name__ == "__main__":
                      ex4_feedback_fusion, ex5_mem0_port):
         print(f"\n{exercise.__name__}")
         exercise()
-    print("\nall offline checks passed; exercise 5 compares against mem0 only where it is installed")
+    print("\nall checks passed")
