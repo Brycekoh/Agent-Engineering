@@ -280,7 +280,7 @@ def ex5_lesson_coverage() -> None:
           f"{sum(coverage.values())} exercise checks in total")
     print(f"  covered: {covered[0]} ... {covered[-1]}")
     print(f"  gaps to close ({len(gaps)}): {', '.join(name[:2] for name in gaps) or 'none'}")
-    assert all(coverage[name] >= 5 for name in coverage if int(name[:2]) <= 30)
+    assert all(coverage[name] >= 5 for name in coverage if int(name[:2]) <= 40)
     assert "30-eval-driven-agent-development" in covered
 
 
@@ -293,6 +293,7 @@ if __name__ == "__main__":
         outcomes = run_lesson_cases()
         for folder, passed in outcomes.items():
             print(f"  {'PASS' if passed else 'FAIL'}  {folder}")
+        print(f"{sum(outcomes.values())} of {len(outcomes)} lesson cases pass")
         sys.exit(0 if all(outcomes.values()) else 1)
     print("Phase 14 - Lesson 30: Eval-Driven Agent Development - exercises")
     for exercise in (ex1_failure_as_eval_case, ex2_rubric_on_fifty_sessions, ex3_ci_gate, ex4_trajectory_efficiency,
