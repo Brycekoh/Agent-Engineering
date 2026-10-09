@@ -13,6 +13,7 @@ import re
 import tempfile
 from collections import Counter
 from dataclasses import replace
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -233,7 +234,10 @@ def ex3_bm25_retrieval() -> None:
 # (prerequisites already in the library), then what unlocks the most.
 #
 # "Call it weekly" is a scheduler entry (cron `0 9 * * 1`, or a Windows
-# scheduled task) that calls propose_skills. No scheduler is built here.
+# scheduled task) that calls propose_skills. Below, the Mondays are played in
+# a loop: each week the agent proposes five, the ones whose prerequisites are
+# met get learned, and the next week's proposals start from the new library.
+# The frontier moves every week until the domain is covered.
 # ---------------------------------------------------------------------------
 
 MINECRAFT = {       # skill -> prerequisites
@@ -265,18 +269,21 @@ def propose_skills(lib: SkillLibrary, domain: dict[str, tuple[str, ...]], k: int
 
 def ex4_curriculum() -> None:
     lib = lesson_library()
-    week_1 = propose_skills(lib, MINECRAFT)
-    learnable = [s for s in week_1 if all(pre in lib.list_names() for pre in MINECRAFT[s])]
-    print(f"  week 1 proposals : {week_1}")
-    print(f"  learnable now    : {learnable}")
-    for name in learnable:
-        lib.register(Skill(name, name.replace("_", " "), f"{name}()", noop, depends_on=MINECRAFT[name]))
-    week_2 = propose_skills(lib, MINECRAFT)
-    print(f"  week 2 proposals : {week_2}")
+    monday, weeks = date(2026, 10, 5), []
+    while proposals := propose_skills(lib, MINECRAFT):
+        learnable = [s for s in proposals if all(pre in lib.list_names() for pre in MINECRAFT[s])]
+        weeks.append((proposals, learnable))
+        print(f"  {monday} proposes {proposals}")
+        print(f"  {'':<10} learns   {learnable}")
+        for name in learnable:
+            lib.register(Skill(name, name.replace("_", " "), f"{name}()", noop, depends_on=MINECRAFT[name]))
+        monday += timedelta(weeks=1)
+    week_1, learned_1 = weeks[0]
+    print(f"  domain covered after {len(weeks)} weekly calls: {len(lib.list_names())} of {len(MINECRAFT)} skills")
     assert len(week_1) == 5 and not set(week_1) & {"mine_ore", "craft_iron_pickaxe"}
-    assert week_1[:3] == learnable == ["gather_wood", "mine_coal", "mine_stone"]
-    assert not set(week_2) & set(learnable)
-    assert all(pre in lib.list_names() for pre in MINECRAFT[week_2[0]])     # the frontier moved
+    assert week_1[:3] == learned_1 == ["gather_wood", "mine_coal", "mine_stone"]
+    assert all(learnable for _, learnable in weeks)                         # the frontier moved every week
+    assert not set(weeks[1][0]) & set(learned_1) and set(lib.list_names()) == set(MINECRAFT)
 
 
 # ---------------------------------------------------------------------------

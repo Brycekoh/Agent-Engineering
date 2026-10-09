@@ -250,7 +250,7 @@ def real_supervisor(model: Any, tools: dict[str, list[Callable[..., Any]]]) -> A
     return workflow.compile()       # .invoke({"messages": [{"role": "user", "content": "..."}]})
 
 
-def ex4_supervisor_shape() -> None:
+def ex4_supervisor_shape() -> str | None:
     static_trace, star_trace = InMemoryCheckpointer(), InMemoryCheckpointer()
     Runner(build_graph(), static_trace).run(
         "s", {"input": "the CLI crashes on ctrl-c", "step": 0, "human_approval": True})
@@ -266,9 +266,11 @@ def ex4_supervisor_shape() -> None:
     assert len(static_nodes) == len(set(static_nodes))              # every node exactly once
     try:
         import langgraph_supervisor  # noqa: F401
-        print("  langgraph-supervisor is installed: call real_supervisor(model, tools) with a chat model")
     except ImportError:
-        print("  real create_supervisor: pip install langgraph-supervisor, then call real_supervisor(model, tools)")
+        print("  needs langgraph-supervisor: pip install langgraph-supervisor, then call real_supervisor(model, tools)")
+        return "langgraph-supervisor"
+    print("  langgraph-supervisor is installed: call real_supervisor(model, tools) with a chat model")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -320,8 +322,10 @@ def ex5_streaming() -> None:
 
 if __name__ == "__main__":
     print("Phase 14 - Lesson 13: Stateful Graph Orchestration - exercises")
+    outcomes = []
     for exercise in (ex1_low_confidence_exit, ex2_sqlite_checkpointer, ex3_parallel_edges,
                      ex4_supervisor_shape, ex5_streaming):
         print(f"\n{exercise.__name__}")
-        exercise()
-    print("\nall checks passed")
+        outcomes.append(exercise())
+    missing = [outcome for outcome in outcomes if outcome]
+    print("\nall exercises passed" if not missing else f"\nall checks passed; install {', '.join(missing)} for the rest")

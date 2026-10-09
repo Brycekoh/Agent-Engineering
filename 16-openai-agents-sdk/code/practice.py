@@ -126,47 +126,53 @@ def ex2_nested_history() -> None:
 # long as one that passes: the full generation plus the check, and the result
 # is then thrown away. Compare an input guardrail tripping on the same bad
 # request, which stops before any generation is paid for.
-# Latencies are simulated with sleep: 80 ms generation, 40 ms check.
+# SIMULATED latencies on a virtual clock, so the comparison is exact and does
+# not depend on the machine: 80 ms for a generation, 40 ms for a check.
 # ---------------------------------------------------------------------------
 
-GENERATION_S, CHECK_S = 0.08, 0.04
+GENERATION_MS, CHECK_MS = 80, 40
+virtual_ms = [0]            # a generation or a check advances it; nothing sleeps
 
 
 def slow_agent() -> Agent:
     def policy(text: str) -> dict[str, Any]:
-        time.sleep(GENERATION_S)
+        virtual_ms[0] += GENERATION_MS
         leaked = " card 4111 1111 1111 1111" if "card" in text else ""
         return {"kind": "final", "text": f"your order is on its way{leaked}"}
     return Agent("support", "answer order questions", policy=policy)
 
 
 def blocking_card_check(text: str) -> tuple[bool, str]:
-    time.sleep(CHECK_S)
+    virtual_ms[0] += CHECK_MS
     return "4111" not in text, "card number in output"
 
 
-def timed(runner: Runner, prompt: str) -> tuple[str, float]:
-    start = time.perf_counter()
+def card_request_check(text: str) -> tuple[bool, str]:
+    virtual_ms[0] += CHECK_MS
+    return "card" not in text, "asks for card data"
+
+
+def timed(runner: Runner, prompt: str) -> tuple[str, int]:
+    start = virtual_ms[0]
     try:
         outcome = runner.run(slow_agent(), prompt)
     except GuardrailTripped as tripped:
         outcome = f"TRIPPED ({tripped.which})"
-    return outcome, time.perf_counter() - start
+    return outcome, virtual_ms[0] - start
 
 
 def ex3_blocking_output_guardrail() -> None:
     output_guarded = lambda: Runner(output_guardrails=[OutputGuardrail("card_check", blocking_card_check)])
-    input_guarded = lambda: Runner(input_guardrails=[InputGuardrail(
-        "card_request", lambda text: (time.sleep(CHECK_S), ("card" not in text, "asks for card data"))[1])])
+    input_guarded = lambda: Runner(input_guardrails=[InputGuardrail("card_request", card_request_check)])
     passed, t_pass = timed(output_guarded(), "where is my order?")
     tripped, t_trip = timed(output_guarded(), "where is my order? include my card")
     early, t_early = timed(input_guarded(), "where is my order? include my card")
-    print(f"  output guardrail, passes : {t_pass * 1000:>4.0f} ms  {passed}")
-    print(f"  output guardrail, trips  : {t_trip * 1000:>4.0f} ms  {tripped}")
-    print(f"  input guardrail, trips   : {t_early * 1000:>4.0f} ms  {early}")
+    print(f"  output guardrail, passes : {t_pass:>4} ms  {passed}")
+    print(f"  output guardrail, trips  : {t_trip:>4} ms  {tripped}")
+    print(f"  input guardrail, trips   : {t_early:>4} ms  {early}")
     assert tripped == "TRIPPED (output)" and early == "TRIPPED (input)"
-    assert abs(t_trip - t_pass) < 0.04                  # tripping saves nothing
-    assert t_early < t_trip - 0.05                      # stopping at the input skips the generation
+    assert t_pass == t_trip == GENERATION_MS + CHECK_MS     # tripping saves nothing
+    assert t_early == CHECK_MS                              # stopping at the input skips the generation
 
 
 # ---------------------------------------------------------------------------

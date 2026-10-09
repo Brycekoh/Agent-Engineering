@@ -10,7 +10,7 @@ import importlib.util
 import inspect
 import sys
 import timeit
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from main import AgnoAgent, MastraAgent, MastraTool
@@ -66,7 +66,7 @@ def agno_port(model: str) -> Any:
     # then: agent.print_response("What is 120 plus 15% tax, stored in kv?")
 
 
-def ex1_agno_port() -> None:
+def ex1_agno_port() -> str | None:
     lesson_01 = load_lesson_01()
     lines = lambda *objects: sum(len(inspect.getsource(obj).splitlines()) for obj in objects)
     plumbing = lines(lesson_01.ToolRegistry, lesson_01.ToyLLM, lesson_01.AgentLoop, lesson_01.Turn, lesson_01.ToolCall)
@@ -77,9 +77,11 @@ def ex1_agno_port() -> None:
     assert plumbing > 2 * kept
     try:
         import agno  # noqa: F401
-        print("  agno is installed: call agno_port('provider:model') with a model key to run it")
     except ImportError:
-        print("  Agno port: pip install agno, then call agno_port('provider:model')")
+        print("  needs agno: pip install agno, then call agno_port('provider:model')")
+        return "agno"
+    print("  agno is installed: call agno_port('provider:model') with a model key to run it")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +236,9 @@ def ex4_crewai_to_agno() -> None:
 #
 # Read from LICENSE.md and ee/LICENSE on Mastra's main branch on 2026-10-07.
 # This is a reading of the text, not legal advice; licences change.
+#
+# The boundary is a directory name, so the first step of a fork can be a
+# check: fork_may_ship() says whether a path falls outside every ee/ folder.
 # ---------------------------------------------------------------------------
 
 EE_LICENSE_NOTES = [
@@ -251,6 +256,10 @@ FORK_CONSEQUENCES = [
 ]
 
 
+def fork_may_ship(path: str) -> bool:
+    return "ee" not in PurePosixPath(path).parts[:-1]
+
+
 def ex5_ee_license() -> None:
     print("  what the licences say:")
     for note in EE_LICENSE_NOTES:
@@ -258,11 +267,19 @@ def ex5_ee_license() -> None:
     print("  what that means for an open-source fork:")
     for consequence in FORK_CONSEQUENCES:
         print(f"    - {consequence}")
+    examples = {"packages/core/src/agent/index.ts": True, "packages/core/src/auth/ee/provider.ts": False,
+                "ee/LICENSE": False, "packages/core/src/employee/index.ts": True}        # made-up paths
+    for path, expected in examples.items():
+        print(f"  {'ship' if fork_may_ship(path) else 'strip':<5} {path}")
+        assert fork_may_ship(path) is expected
+    assert len(EE_LICENSE_NOTES) == 5 and len(FORK_CONSEQUENCES) == 4
 
 
 if __name__ == "__main__":
     print("Phase 14 - Lesson 18: Agno and Mastra - exercises")
+    outcomes = []
     for exercise in (ex1_agno_port, ex2_typed_tools, ex3_instantiation_latency, ex4_crewai_to_agno, ex5_ee_license):
         print(f"\n{exercise.__name__}")
-        exercise()
-    print("\nall checks passed")
+        outcomes.append(exercise())
+    missing = [outcome for outcome in outcomes if outcome]
+    print("\nall exercises passed" if not missing else f"\nall checks passed; install {', '.join(missing)} for the rest")

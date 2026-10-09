@@ -6,11 +6,14 @@ Run with:  python practice.py   (every exercise asserts its own result)
 
 from __future__ import annotations
 
+import importlib.util
 import random
+import sys
 import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
+from pathlib import Path
 from typing import Callable
 
 from main import evaluator_optimizer, parallel_vote, prompt_chain, route
@@ -101,7 +104,10 @@ def parallel_vote_with_timeout(prompt: str, llm: Callable[[str], str], n: int = 
     return (winner if votes > n / 2 else None), counts, len(pending)
 
 
-def scripted_voters(script: list[str], hang_s: float = 0.6) -> Callable[[str], str]:
+HANG_S = 0.6
+
+
+def scripted_voters(script: list[str], hang_s: float = HANG_S) -> Callable[[str], str]:
     answers, lock = iter(script), threading.Lock()
 
     def llm(prompt: str) -> str:
@@ -130,7 +136,7 @@ def ex2_vote_timeout() -> None:
     print(f"  main.parallel_vote, one hung call : returned after {blocked:.2f}s")
     print(f"  with a 0.2s deadline              : {winner!r} {dict(counts)}, {missing} missing, {bounded:.2f}s")
     print(f"  two hung calls                    : {split!r} {dict(split_counts)}, {split_missing} missing -> escalate")
-    assert blocked >= 0.6 and bounded < 0.45
+    assert bounded < 0.9 * HANG_S < blocked             # back before the hung call would have finished
     assert winner == "yes" and missing == 1             # 3 of 5 requested is still a majority
     assert split is None and split_counts["yes"] == 2   # 2 of 5 is not, even though yes leads 2 to 1
 
@@ -256,30 +262,34 @@ def ex4_routed_chains() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Exercise 5 - draw a production feature as a workflow graph and count steps
+# Exercise 5 - draw a feature as a workflow graph and count steps
 #
-# STAND-IN FEATURE: CI failure triage, a plausible feature for DevOps
-# tooling. Replace GRAPH with a real one; the counting below is generic.
+# The feature is one this repository has: the support flow that lesson 13
+# builds. The graph is read from that lesson's code, not redrawn by hand, so
+# it cannot drift from it.
 #
-#   fetch_job_log -> classify_failure -+-> flaky_test -> rerun_job ------------------+
-#                                      +-> regression -> find_culprit -> draft_fix --+-> post_summary
-#                                      +-> infra_error -> page_oncall ---------------+
+#   classify -+-> refund -+
+#             +-> bug ----+-> human_gate -> send
+#             +-> sales --+
 #
 # Would an agent be better? No. The graph has no cycle, one branch point and
-# at most six steps, so every run is bounded and auditable: routing plus
-# chaining covers it. The one place an agent earns its cost is inside
-# find_culprit, where the number of steps really is unknown. Make that single
-# node an agent with a turn budget and keep the workflow around it.
+# four steps on every run, so each run is bounded and auditable: routing plus
+# a short chain covers it, and the human gate is a pause, not a loop. An
+# agent earns its cost where the number of steps is not known in advance. Add
+# one edge that says "not resolved, classify again" and the longest run has
+# no bound: that is where a turn budget, and an agent, start to make sense.
 # ---------------------------------------------------------------------------
 
-GRAPH = {
-    "fetch_job_log": ["classify_failure"],
-    "classify_failure": ["flaky_test", "regression", "infra_error"],
-    "flaky_test": ["rerun_job"], "rerun_job": ["post_summary"],
-    "regression": ["find_culprit"], "find_culprit": ["draft_fix"], "draft_fix": ["post_summary"],
-    "infra_error": ["page_oncall"], "page_oncall": ["post_summary"],
-    "post_summary": [],
-}
+def support_graph() -> tuple[dict[str, list[str]], str]:
+    """The graph lesson 13 builds, read from its code: node -> next nodes, and the entry node."""
+    path = Path(__file__).resolve().parents[2] / "13-langgraph-stateful-graphs" / "code" / "main.py"
+    spec = importlib.util.spec_from_file_location("lesson13_main", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    graph = module.build_graph()
+    return {node: [edge.dst for edge in graph.edges.get(node, []) if edge.dst != module.END]
+            for node in graph.nodes}, graph.entry
 
 
 def longest_path(graph: dict[str, list[str]], node: str, seen: tuple[str, ...] = ()) -> int | None:
@@ -293,14 +303,17 @@ def longest_path(graph: dict[str, list[str]], node: str, seen: tuple[str, ...] =
 
 
 def ex5_workflow_or_agent() -> None:
-    steps = longest_path(GRAPH, "fetch_job_log")
-    branches = [node for node, nexts in GRAPH.items() if len(nexts) > 1]
-    print(f"  nodes: {len(GRAPH)}   branch points: {branches}   longest run: {steps} steps")
+    graph, entry = support_graph()
+    steps = longest_path(graph, entry)
+    branches = [node for node, nexts in graph.items() if len(nexts) > 1]
+    for node, nexts in graph.items():
+        print(f"  {node:<10} -> {', '.join(nexts) or 'END'}")
+    print(f"  nodes: {len(graph)}   branch points: {branches}   longest run: {steps} steps")
     print(f"  verdict: {'workflow' if steps is not None else 'agent'} (bounded, no cycle)")
-    looping = {**GRAPH, "draft_fix": ["find_culprit"]}       # "keep investigating until it works"
-    print(f"  with a find_culprit <-> draft_fix loop: longest run {longest_path(looping, 'fetch_job_log')} -> agent territory")
-    assert steps == 6 and branches == ["classify_failure"]
-    assert longest_path(looping, "fetch_job_log") is None
+    looping = {**graph, "send": ["classify"]}                # "not resolved, classify again"
+    print(f"  with a send -> classify edge: longest run {longest_path(looping, entry)} -> agent territory")
+    assert (entry, len(graph), steps, branches) == ("classify", 6, 4, ["classify"])
+    assert longest_path(looping, entry) is None
 
 
 if __name__ == "__main__":

@@ -247,37 +247,56 @@ def ex4_sdk_port() -> str | None:
 # sandbox its shell. Managed Agents gives you the harness and the deployment:
 # an agent is a stored, versioned config, and each session gets a hosted
 # container where its tools execute, with events streamed back to you.
+#
+# The answer is written as a rule so it can be checked: switch when at least
+# one thing pulls the agent there and nothing rules it out.
 # ---------------------------------------------------------------------------
 
-SWITCH_TO_MANAGED_WHEN = [
-    "runs outlive your process: hours-long or asynchronous work you would otherwise babysit with a job queue",
-    "the agent should run on a schedule; deployments fire sessions without a scheduler of your own",
-    "you do not want to own the sandbox; bash and file edits happen in a hosted per-session container",
-    "you need versioned agent configs: update the prompt without breaking running sessions, pin, roll back",
-    "work must meet a rubric; outcomes re-run the agent against a grader until it passes",
-]
-STAY_SELF_HOSTED_WHEN = [
-    "the agent lives inside your own program: a CLI, a CI job or a desktop tool working on local files "
-    "(if only tool execution must stay in your network, Managed Agents has self-hosted sandboxes for that)",
-    "you deploy through Bedrock, Vertex AI or Foundry, where Managed Agents is not available",
-    "you need in-process hooks and custom control over every tool call",
-    "a beta surface is not acceptable for this system yet",
-]
+SWITCH_TO_MANAGED_WHEN = {
+    "outlives_process": "runs outlive your process: hours-long or asynchronous work you would otherwise babysit with a job queue",
+    "scheduled": "the agent should run on a schedule; deployments fire sessions without a scheduler of your own",
+    "sandbox_is_a_burden": "you do not want to own the sandbox; bash and file edits happen in a hosted per-session container",
+    "versioned_config": "you need versioned agent configs: update the prompt without breaking running sessions, pin, roll back",
+    "graded_outcomes": "work must meet a rubric; outcomes re-run the agent against a grader until it passes",
+}
+STAY_SELF_HOSTED_WHEN = {
+    "in_your_program": "the agent lives inside your own program: a CLI, a CI job or a desktop tool working on local files "
+                       "(if only tool execution must stay in your network, Managed Agents has self-hosted sandboxes for that)",
+    "third_party_cloud": "you deploy through Bedrock, Vertex AI or Foundry, where Managed Agents is not available",
+    "in_process_hooks": "you need in-process hooks and custom control over every tool call",
+    "no_beta": "a beta surface is not acceptable for this system yet",
+}
+
+
+def where_to_run(traits: set[str]) -> str:
+    pulled, held = traits & set(SWITCH_TO_MANAGED_WHEN), traits & set(STAY_SELF_HOSTED_WHEN)
+    return "managed" if pulled and not held else "self-hosted"
 
 
 def ex5_managed_or_self_hosted() -> None:
     print("  switch to Managed Agents when:")
-    for reason in SWITCH_TO_MANAGED_WHEN:
+    for reason in SWITCH_TO_MANAGED_WHEN.values():
         print(f"    - {reason}")
     print("  stay on the self-hosted Agent SDK when:")
-    for reason in STAY_SELF_HOSTED_WHEN:
+    for reason in STAY_SELF_HOSTED_WHEN.values():
         print(f"    - {reason}")
+    agents = {"nightly repo-maintenance agent": {"outlives_process", "scheduled", "sandbox_is_a_burden"},
+              "the same agent, model on Bedrock": {"outlives_process", "scheduled", "third_party_cloud"},
+              "coding assistant in a CLI": {"in_your_program", "in_process_hooks"},
+              "ten-second support reply": set()}
+    decisions = {name: where_to_run(traits) for name, traits in agents.items()}
+    for name, decision in decisions.items():
+        print(f"  {name:<33} -> {decision}")
+    assert list(decisions.values()) == ["managed", "self-hosted", "self-hosted", "self-hosted"]
+    assert all(trait in {**SWITCH_TO_MANAGED_WHEN, **STAY_SELF_HOSTED_WHEN} for traits in agents.values() for trait in traits)
 
 
 if __name__ == "__main__":
     print("Phase 14 - Lesson 17: Subagents and Session Store - exercises")
+    outcomes = []
     for exercise in (ex1_batched_subagents, ex2_rate_limit_hook, ex3_subagent_tree, ex4_sdk_port,
                      ex5_managed_or_self_hosted):
         print(f"\n{exercise.__name__}")
-        exercise()
-    print("\nall checks passed")
+        outcomes.append(exercise())
+    missing = [outcome for outcome in outcomes if outcome]
+    print("\nall exercises passed" if not missing else f"\nall checks passed; install {', '.join(missing)} for the rest")
