@@ -22,6 +22,7 @@ import main as lesson
 from main import EventBus, Job, QueueRuntime
 
 QUESTION = "What is 120 plus 15% tax, stored in kv?"
+_original_agent_fn = lesson._agent_fn       # exercise 1 swaps this for the lesson 01 agent and puts it back
 
 
 def load_lesson_01() -> Any:
@@ -140,9 +141,6 @@ def ex1_six_shapes() -> None:
     assert saved == 3 and len(recorded) == len(chunks) == 6 and len(scheduled_runs) == 2
 
 
-_original_agent_fn = lesson._agent_fn
-
-
 # ---------------------------------------------------------------------------
 # Exercise 2 - a dead-letter queue under 10% failure
 #
@@ -237,7 +235,7 @@ def ex3_nightly_eval() -> None:
 # ---------------------------------------------------------------------------
 
 def stream(buffer_size: int, deadline_s: float | None = None, count_blocked_time: bool = True,
-           steps: int = 8, step_s: float = 0.005, client_s: float = 0.02) -> dict[str, Any]:
+           steps: int = 8, step_s: float = 0.005, client_s: float = 0.04) -> dict[str, Any]:
     chunks: queue.Queue[str | None] = queue.Queue(maxsize=buffer_size)
     stats: dict[str, Any] = {"blocked_s": 0.0, "max_buffered": 0, "sent": 0}
 
@@ -270,15 +268,15 @@ def ex4_backpressure() -> None:
     runs = {
         "unbounded buffer": stream(buffer_size=0),
         "buffer of 1": stream(buffer_size=1),
-        "buffer of 1, 80 ms wall-clock budget": stream(buffer_size=1, deadline_s=0.08),
-        "same budget, blocked time excluded": stream(buffer_size=1, deadline_s=0.08, count_blocked_time=False),
+        "buffer of 1, 150 ms wall-clock budget": stream(buffer_size=1, deadline_s=0.15),
+        "same budget, blocked time excluded": stream(buffer_size=1, deadline_s=0.15, count_blocked_time=False),
     }
     for label, r in runs.items():
-        print(f"  {label:<37} sent {r['sent']}/8, agent ran {r['agent_wall_s'] * 1000:>4.0f} ms "
+        print(f"  {label:<38} sent {r['sent']}/8, agent ran {r['agent_wall_s'] * 1000:>4.0f} ms "
               f"(blocked {r['blocked_s'] * 1000:>4.0f} ms), most buffered {r['max_buffered']}")
     assert runs["unbounded buffer"]["max_buffered"] > runs["buffer of 1"]["max_buffered"] == 1
     assert runs["buffer of 1"]["agent_wall_s"] > 2 * runs["unbounded buffer"]["agent_wall_s"]      # it was paused
-    assert runs["buffer of 1, 80 ms wall-clock budget"]["sent"] < 8                                # cut off while waiting
+    assert runs["buffer of 1, 150 ms wall-clock budget"]["sent"] < 8                               # cut off while waiting
     assert runs["same budget, blocked time excluded"]["sent"] == 8
 
 

@@ -96,6 +96,10 @@ def ex1_dom_injection() -> None:
 # allowed site carries the agent to any host. The fix is to check every hop.
 # That in turn breaks something legitimate: a sign-in that bounces through an
 # identity provider now fails until that host is added on purpose.
+#
+# main.py has no navigate action, and its classifier refuses any kind of
+# action it does not know. That is the right default: a new action gets
+# through only once someone has written the check for it, which is navigate().
 # ---------------------------------------------------------------------------
 
 WEB = {     # a toy web: url -> ("page", text) or ("redirect", location)
@@ -141,6 +145,10 @@ def ex2_navigate_allowlist() -> None:
     assert rows["same-site redirect"] == ("LANDED on shop.example", "LANDED on shop.example")
     assert rows["sign-in via SSO"][1].startswith("BLOCKED")                 # the legitimate flow that now breaks
     assert navigate("https://shop.example/account", hosts | {"sso.example"}, True) == "LANDED on sso.example"
+
+    unknown = SafetyClassifier(ALLOWED_LABELS).assess(Action("navigate", {"url": "https://shop.example/sale"}), shop_screen())
+    print(f"  main's classifier, given a navigate action: allow={unknown.allow} ({unknown.reason})")
+    assert not unknown.allow and "unknown action kind" in unknown.reason
 
 
 # ---------------------------------------------------------------------------
@@ -245,21 +253,40 @@ def ex4_safety_service() -> None:
 # ---------------------------------------------------------------------------
 # Exercise 5 - what per-step safety costs
 #
-# The rule-based check is measured. The other numbers are assumptions, stated
-# below: a model step, a UI action, and a model-based safety check. Under them
-# the rule check is free and a model check on every step adds about a sixth.
-# Worth it? For the rules, always. For the model check, on the steps that can
-# spend, send, delete or leave the allowlist; routing only those to it keeps
-# the cost under two percent.
+# Measured on the toy: the same run with the checks and with a classifier
+# that allows everything. The checks are most of the run, because the toy's
+# actions do no work; a percentage taken on the toy says nothing about a real
+# agent. What carries over is the absolute cost, a few microseconds a step.
+#
+# Against a real step the rule check is free. The step times are assumptions,
+# stated below: a model step, a UI action, and a model-based safety check.
+# Under them a model check on every step adds about a sixth. Worth it? For
+# the rules, always. For the model check, on the steps that can spend, send,
+# delete or leave the allowlist; routing only those to it keeps the cost
+# under two percent.
 # ---------------------------------------------------------------------------
 
+# ASSUMPTION: seconds for a model step, a UI action and a model-based check, and the share of steps that are sensitive.
 MODEL_STEP_S, UI_ACTION_S, MODEL_CHECK_S, SENSITIVE_SHARE = 2.0, 0.3, 0.4, 0.1
+
+
+class AllowEverything(SafetyClassifier):
+    def assess(self, action: Action, screen: Screen) -> SafetyVerdict:
+        return SafetyVerdict(True, "ok")
 
 
 def ex5_safety_latency() -> None:
     classifier, screen = ConfirmingClassifier(ALLOWED_LABELS), shop_screen()
     click = Action("click", {"x": 140, "y": 115})
     rule_check_s = min(timeit.repeat(lambda: classifier.assess(click, screen), number=2000, repeat=3)) / 2000
+    actions = [click, Action("type", {"text": "wireless headphones"})] * 50
+
+    def run_ms(checker: SafetyClassifier) -> float:
+        return min(timeit.repeat(lambda: run_agent(actions, screen, checker, lambda reason: True), number=20, repeat=3)) / 20 * 1000
+
+    checked_ms, unchecked_ms = run_ms(classifier), run_ms(AllowEverything(ALLOWED_LABELS))
+    print(f"  on the toy, 100 actions: {checked_ms:.3f} ms with the checks, {unchecked_ms:.3f} ms without "
+          f"(+{checked_ms / unchecked_ms - 1:.0%})")
     step_s = MODEL_STEP_S + UI_ACTION_S
     overhead = {
         "rule check on every step": rule_check_s / step_s,
@@ -269,7 +296,7 @@ def ex5_safety_latency() -> None:
     print(f"  rule check measured at {rule_check_s * 1e6:.1f} us per step; a step is assumed to take {step_s}s")
     for label, share in overhead.items():
         print(f"  {label:<36} +{share:.3%} latency")
-    assert rule_check_s < 0.001
+    assert rule_check_s < 0.001 and checked_ms > unchecked_ms
     assert overhead["model check on sensitive steps only"] < 0.02 < overhead["model check on every step"]
 
 

@@ -23,6 +23,17 @@ def play(app: Any, trajectory: list[Action]) -> list[str]:
     return trace
 
 
+def count_calls(app: Any) -> list[str]:
+    """Record every public method called on the app from now on. Returns the list as it fills."""
+    calls: list[str] = []
+    for name in [name for name in dir(app) if not name.startswith("_") and callable(getattr(app, name))]:
+        def recorded(*args: Any, _method: Callable[..., Any] = getattr(app, name), _name: str = name, **kwargs: Any) -> Any:
+            calls.append(_name)
+            return _method(*args, **kwargs)
+        setattr(app, name, recorded)
+    return calls
+
+
 def from_trajectory(tid: str, description: str, agent: list[Action], gold: list[Action],
                     success: Callable[[Any], bool]) -> Task:
     return Task(tid, description, agent=lambda app: play(app, agent), gold_steps=len(gold), success=success)
@@ -108,10 +119,17 @@ def ex1_forum_app() -> None:
 # ---------------------------------------------------------------------------
 # Exercise 2 - trajectory efficiency per task
 #
-# Steps taken divided by gold steps, per task and overall, across both apps.
+# Actions taken divided by gold steps, per task and overall, across both apps.
 # The shopping tasks use main's own scripted agents and main's gold counts.
-# On this toy the agent is between 1x and 2x over gold, near the low end of
-# the 1.4-2.7x range the lesson quotes from OSWorld-Human.
+#
+# main.py counts the lines of the trace an agent hands back. One line of
+# revised_order's trace is a note ("revised_choice: remove keyboard"), not an
+# action, so that task reads as 7 steps when the app received 6 calls. Here a
+# step is a call the app received, so a note cannot inflate the number and an
+# agent that logs less cannot shrink it.
+#
+# On this toy the agent is about 1.3x over gold: nearer 1x than 2x, and just
+# under the 1.4-2.7x range the lesson quotes from OSWorld-Human.
 # ---------------------------------------------------------------------------
 
 SHOP_TASKS = [
@@ -126,20 +144,22 @@ SHOP_TASKS = [
 
 
 def ex2_efficiency_report() -> None:
-    total_steps = total_gold = 0
+    total_steps = total_lines = total_gold = 0
     ratios = {}
     for make_app, tasks in ((ShoppingApp, SHOP_TASKS), (ForumApp, FORUM_TASKS)):
         for task in tasks:
             app = make_app()
-            steps = len(task.agent(app))
+            calls = count_calls(app)
+            lines = len(task.agent(app))
             assert task.success(app)
-            ratios[task.tid] = steps / task.gold_steps
-            total_steps, total_gold = total_steps + steps, total_gold + task.gold_steps
-            print(f"  {task.tid:<15} {steps} steps, gold {task.gold_steps}: {ratios[task.tid]:.2f}x")
+            ratios[task.tid] = len(calls) / task.gold_steps
+            total_steps, total_lines, total_gold = total_steps + len(calls), total_lines + lines, total_gold + task.gold_steps
+            note = "" if lines == len(calls) else f"   (main.py counts {lines} trace lines: {lines / task.gold_steps:.2f}x)"
+            print(f"  {task.tid:<15} {len(calls)} actions, gold {task.gold_steps}: {ratios[task.tid]:.2f}x{note}")
     overall = total_steps / total_gold
-    print(f"  overall: {total_steps} steps against {total_gold} gold = {overall:.2f}x")
-    assert ratios["buy_headphones"] == 1.0 and ratios["follow_busiest"] == 2.5
-    assert 1.0 < overall < 2.0
+    print(f"  overall: {total_steps} actions against {total_gold} gold = {overall:.2f}x   (by trace lines: {total_lines / total_gold:.2f}x)")
+    assert ratios["buy_headphones"] == 1.0 and ratios["follow_busiest"] == 2.5 and ratios["revised_order"] == 1.2
+    assert (total_steps, total_lines, total_gold) == (23, 24, 18) and 1.2 < overall < 1.4
 
 
 # ---------------------------------------------------------------------------

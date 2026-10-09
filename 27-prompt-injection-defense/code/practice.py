@@ -179,9 +179,14 @@ def ex3_worm() -> None:
 # page; a real model does this some of the time, which is enough.
 #
 # The fix is not a longer marker list. A sensitive tool is bound to intent:
-# its recipient has to be someone the user named, or a known contact. The
-# page can say what it likes; it cannot make the user have said it.
+# its recipient has to be an address the user typed in full, or a known
+# contact. The page can say what it likes; it cannot make the user have said
+# it. The match is on whole addresses: a recipient that is only part of one
+# the user typed is a different mailbox.
 # ---------------------------------------------------------------------------
+
+ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
 
 @dataclass
 class IntentBoundValidator(Validator):
@@ -191,9 +196,9 @@ class IntentBoundValidator(Validator):
         ok, reason = super().assess(call, contents)
         if not ok or call.name not in self.sensitive_tools:
             return ok, reason
-        said_by_user = " ".join(c.text for c in contents if c.source == "user_message")
+        named_by_user = set(ADDRESS.findall(" ".join(c.text for c in contents if c.source == "user_message")))
         recipient = str(call.args.get("to", ""))
-        if recipient not in self.contacts and recipient not in said_by_user:
+        if recipient not in self.contacts and recipient not in named_by_user:
             return False, f"recipient {recipient!r} was never named by the user"
         return True, "ok"
 
@@ -221,6 +226,13 @@ def ex4_data_theft() -> None:
     print(f"  user's own send : allow={bound.assess(legitimate, contents)[0]}")
     assert looks_like_directive(page) is None and allowed          # the exploit works against main
     assert not fixed and bound.assess(legitimate, contents)[0]
+
+    typed = [Content("send the summary to sam@corp.example please", "user_message")]
+    verdicts = {to: bound.assess(ToolCall("send_message", {"to": to, "body": "summary"}, intent="share"), typed)[0]
+                for to in ("sam@corp.example", "m@corp.example", "")}
+    print(f"  an address the user typed: allow={verdicts['sam@corp.example']}; part of that address: "
+          f"allow={verdicts['m@corp.example']}; no recipient: allow={verdicts['']}")
+    assert verdicts == {"sam@corp.example": True, "m@corp.example": False, "": False}
 
 
 # ---------------------------------------------------------------------------

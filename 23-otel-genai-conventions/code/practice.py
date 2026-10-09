@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import itertools
 import json
+import math
 import os
 import random
 import sqlite3
@@ -287,6 +288,10 @@ def ex4_stability_opt_in() -> None:
 # Tool spans do not carry the model. The model is on the agent span, so the
 # join runs through the parent link, which is why orphaned tool spans make
 # this question unanswerable.
+#
+# A table of rates invites reading noise as a pattern, so each cell is also
+# scored against all the other calls (a two-proportion z-score). The planted
+# cell is the only one more than three standard errors above the rest.
 # ---------------------------------------------------------------------------
 
 MODELS, TOOLS = ("model-a", "model-b", "model-c"), ("search", "read_file", "write_file")
@@ -310,6 +315,13 @@ def synthetic_traces(count: int = 900, seed: int = 0) -> list[Span]:
     return traces
 
 
+def z_against_rest(cell: tuple[str, str], calls: Counter, errors: Counter) -> float:
+    rest_calls, rest_errors = sum(calls.values()) - calls[cell], sum(errors.values()) - errors[cell]
+    pooled = sum(errors.values()) / sum(calls.values())
+    standard_error = math.sqrt(pooled * (1 - pooled) * (1 / calls[cell] + 1 / rest_calls))
+    return (errors[cell] / calls[cell] - rest_errors / rest_calls) / standard_error
+
+
 def ex5_error_dashboard() -> None:
     calls: Counter[tuple[str, str]] = Counter()
     errors: Counter[tuple[str, str]] = Counter()
@@ -327,7 +339,10 @@ def ex5_error_dashboard() -> None:
     worst = max(calls, key=lambda key: errors[key] / calls[key])
     print(f"  overall {overall:.1%}; worst cell {worst} at {errors[worst] / calls[worst]:.1%}, "
           f"{errors[worst] / calls[worst] / overall:.1f}x the average")
-    assert worst == ("model-b", "write_file")
+    scores = {cell: z_against_rest(cell, calls, errors) for cell in calls}
+    outliers = [cell for cell, z in scores.items() if z > 3]
+    print(f"  z-score of {worst} against the rest: {scores[worst]:.1f}; cells above 3: {len(outliers)} of {len(scores)}")
+    assert worst == ("model-b", "write_file") and outliers == [worst] and scores[worst] > 8
 
 
 if __name__ == "__main__":

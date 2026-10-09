@@ -7,6 +7,9 @@ Run with:  python practice.py   (every exercise asserts its own result)
 from __future__ import annotations
 
 import random
+import re
+from collections import Counter
+from pathlib import Path
 from typing import Callable
 
 import main as lesson
@@ -219,35 +222,68 @@ def ex4_profile_patterns() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Exercise 5 - map production flows onto the four patterns
+# Exercise 5 - map your flows onto the four patterns
 #
-# STAND-IN FLOWS for a DevOps tooling product; replace them with real ones.
+# The flows are the ones this repository contains: every multi-step flow the
+# other lessons build, each named by the function or class that implements it
+# (checked below to exist in that lesson's main.py).
+#
 # "Building Effective Agents" argues for the simplest thing that works:
 # single calls and fixed workflows before agents, agents before teams of
-# agents. That shows up in the mapping. Two of the seven flows do not map onto
-# any of the four multi-agent patterns, because they are one agent following
-# a workflow, and forcing them into a topology would be the "topology-first"
-# mistake the lesson warns about.
+# agents. The mapping shows it. Seven of the eleven flows map onto a pattern,
+# and four of those seven are the plain supervisor. None needs two levels.
+# Four do not map at all, because they are one agent following a workflow (a
+# chain, or a propose-and-check loop), and forcing them into a topology would
+# be the "topology-first" mistake the lesson warns about.
+#
+# Two map only loosely. parallel_vote is a debate with the debating taken
+# out: independent answers and a vote. And the crew that CrewAI calls
+# hierarchical is, in this lesson's terms, a supervisor: one manager, one
+# level.
 # ---------------------------------------------------------------------------
 
-PATTERNS = {"supervisor-worker", "swarm", "hierarchical", "debate", "none: single-agent workflow"}
-FLOWS = [
-    ("CI failure triage", "supervisor-worker", "one router sends each failure to a flaky-test, regression or infra handler"),
-    ("incident investigation", "supervisor-worker", "an orchestrator fans out to log, metric and deploy investigators, then synthesises"),
-    ("review of a risky change", "debate", "independent reviewers must agree before auto-merge"),
-    ("on-call handoff between service bots", "swarm", "the bot that owns the service takes over directly; hop limit needed"),
-    ("support desk across 40 services", "hierarchical", "too many specialists for one router's prompt"),
-    ("nightly dependency bump", "none: single-agent workflow", "fixed steps in a fixed order: a prompt chain"),
-    ("release notes with a checker", "none: single-agent workflow", "draft, evaluate, revise: an evaluator-optimizer loop"),
+REPO = Path(__file__).resolve().parents[2]
+WORKFLOW = "none: single-agent workflow"
+PATTERNS = {"supervisor-worker", "swarm", "hierarchical", "debate", WORKFLOW}
+FLOWS = [   # (flow, lesson folder, what implements it, pattern, why)
+    ("orchestrator and workers", "12-anthropic-workflow-patterns", "orchestrator_workers", "supervisor-worker",
+     "one orchestrator gives the task to the workers that handle it and combines what comes back"),
+    ("routing", "12-anthropic-workflow-patterns", "route", "supervisor-worker",
+     "a classifier picks one handler: the supervisor with nothing to combine"),
+    ("support graph", "13-langgraph-stateful-graphs", "build_graph", "supervisor-worker",
+     "a classify node routes to a refund, bug or sales node inside one graph"),
+    ("role crew with a manager", "15-crewai-role-based-crews", "HierarchicalCrew", "supervisor-worker",
+     "one manager picks the next specialist; hierarchical in name, one level deep"),
+    ("triage with handoffs", "16-openai-agents-sdk", "Handoff", "swarm",
+     "the agent holding the conversation transfers it to a peer; a hop limit ends bouncing"),
+    ("parallel vote", "12-anthropic-workflow-patterns", "parallel_vote", "debate",
+     "independent answers and a majority vote, without rounds of critique"),
+    ("debate", "25-multi-agent-debate", "run_debate", "debate",
+     "debaters revise against each other's answers until they agree"),
+    ("prompt chain", "12-anthropic-workflow-patterns", "prompt_chain", WORKFLOW,
+     "fixed steps in a fixed order"),
+    ("role crew in sequence", "15-crewai-role-based-crews", "SequentialCrew", WORKFLOW,
+     "researcher, writer, editor in a fixed order: a prompt chain with job titles"),
+    ("evaluator and optimizer", "30-eval-driven-agent-development", "evaluator_optimizer", WORKFLOW,
+     "propose, judge, revise: one loop, two roles"),
+    ("builder and reviewer", "39-reviewer-agent", "review", WORKFLOW,
+     "a second role scores finished work; it proposes nothing, so it is not a debate"),
 ]
 
 
+def implemented(folder: str, name: str) -> bool:
+    source = (REPO / folder / "code" / "main.py").read_text(encoding="utf-8")
+    return re.search(rf"^(?:def|class) {name}\b", source, re.M) is not None
+
+
 def ex5_map_flows() -> None:
-    for flow, pattern, why in FLOWS:
-        print(f"  {flow:<37} {pattern:<28} {why}")
-    unmapped = [flow for flow, pattern, _ in FLOWS if pattern.startswith("none")]
-    print(f"  do not map onto a multi-agent pattern: {unmapped}")
-    assert all(pattern in PATTERNS for _, pattern, _ in FLOWS) and len(unmapped) == 2
+    for flow, folder, name, pattern, why in FLOWS:
+        print(f"  {flow:<25} lesson {folder[:2]} {name:<21} {pattern:<28} {why}")
+    used = Counter(pattern for _, _, _, pattern, _ in FLOWS)
+    print(f"  patterns used: {dict(used)}")
+    assert all(implemented(folder, name) for _, folder, name, _, _ in FLOWS)
+    assert set(used) <= PATTERNS and used[WORKFLOW] == 4 and used["supervisor-worker"] == 4 and "hierarchical" not in used
+    assert not implemented("12-anthropic-workflow-patterns", "no_such_flow")
 
 
 if __name__ == "__main__":

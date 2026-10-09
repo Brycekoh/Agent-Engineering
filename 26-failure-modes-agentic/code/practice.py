@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 from main import Trace, TraceStep, detect_cascading_errors, detect_success_hallucination, tag
@@ -174,7 +175,8 @@ def ex3_cascade_radius() -> None:
 #   FM-3.2  no or incomplete verification
 # The first also covers a gap in main: detect_context_loss looks for the word
 # after "do not" inside the arguments, so "do not modify src/" followed by a
-# write to src/ goes untagged.
+# write to src/ goes untagged. The match here is on path components, so a
+# write to ./src/ counts and a write to src_backup/ does not.
 # ---------------------------------------------------------------------------
 
 def detect_task_spec_violation(trace: Trace) -> str | None:
@@ -183,9 +185,10 @@ def detect_task_spec_violation(trace: Trace) -> str | None:
         if not found:
             continue
         target = found[1].rstrip("/.")
+        protected = PurePosixPath(target).parts
         for step in trace.steps:
-            path = str(step.args.get("path", "")).lower()
-            if step.name == "write_file" and (target in ("any", "anything") or path.startswith(target)):
+            written = PurePosixPath(str(step.args.get("path", "")).lower()).parts
+            if step.name == "write_file" and (target in ("any", "anything") or written[:len(protected)] == protected):
                 return "FM-1.1 fail to follow task specification"
     return None
 
@@ -215,6 +218,10 @@ def ex4_masft_detectors() -> None:
         Trace("unverified", "save the report", [], [call("write_file", path="report.md", content="done")], True, True),
         Trace("careful", "save the report", [], [
             call("write_file", path="report.md", content="done"), call("read_file", path="report.md")], True, True),
+        Trace("dot-prefix", "tidy the module", ["do not modify src/"], [
+            call("write_file", path="./src/foo.py", content="tidied"), call("read_file", path="./src/foo.py")], True, True),
+        Trace("sibling-dir", "keep a copy of the notes", ["do not modify src/"], [
+            call("write_file", path="src_backup/notes.md", content="notes"), call("read_file", path="src_backup/notes.md")], True, True),
     ]
     found = {}
     for trace in traces:
@@ -224,6 +231,7 @@ def ex4_masft_detectors() -> None:
     assert "context_loss" not in tag(traces[0])                 # the gap in main's detector
     assert found["retry-loop"] == ["FM-1.3 step repetition"]
     assert found["unverified"] == ["FM-3.2 no or incomplete verification"] and found["careful"] == []
+    assert found["dot-prefix"] == ["FM-1.1 fail to follow task specification"] and found["sibling-dir"] == []
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,6 @@ Run with:  python practice.py   (every exercise asserts its own result)
 
 from __future__ import annotations
 
-import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
@@ -20,7 +19,6 @@ REPLIES = {
 }
 # The lesson's typical 2026 latencies per stage, in milliseconds (low, high).
 STAGE_MS = {"vad": (20, 60), "stt": (100, 250), "llm": (150, 400), "tts": (100, 200), "transport": (30, 80)}
-SCALE = 0.1         # the toy sleeps a tenth of the midpoint so the file runs in about a second
 
 
 def midpoint_s(stage: str) -> float:
@@ -28,22 +26,33 @@ def midpoint_s(stage: str) -> float:
     return (low + high) / 2 / 1000
 
 
+class Clock:
+    """Virtual time. A stage's latency advances it, so nothing here sleeps and no result depends on the machine."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 # ---------------------------------------------------------------------------
 # Exercise 1 - a metrics observer: frames per stage, and where time goes
 #
 # The observer wraps each processor, counts the frames it sees and measures
 # its own time (time inside the stage minus time spent in the stages after
-# it). Stage delays are simulated from the lesson's ranges, so the shares are
-# those ranges measured back; what the observer adds is the mechanism and the
-# ranking: the LLM's first token and then STT are where a turn's latency
-# accumulates. VAD and transport together are about a seventh.
+# it). SIMULATED latencies: each stage advances a virtual clock by the
+# midpoint of the lesson's range for it, so the shares are those ranges
+# measured back. What the observer adds is the mechanism and the ranking: the
+# LLM's first token and then STT are where a turn's latency accumulates. VAD
+# and transport together are about a seventh.
 # ---------------------------------------------------------------------------
 
 class MetricsObserver:
-    def __init__(self, simulate: bool = True) -> None:
+    def __init__(self, clock: Clock) -> None:
+        self.clock = clock
         self.frames: Counter[str] = Counter()
         self.self_seconds: defaultdict[str, float] = defaultdict(float)
-        self.simulate = simulate
         self._children: list[float] = []
 
     def attach(self, *processors: Processor) -> None:
@@ -56,11 +65,11 @@ class MetricsObserver:
         def observed(frame: Frame) -> None:
             self.frames[processor.name] += 1
             self._children.append(0.0)
-            start = time.perf_counter()
-            if self.simulate and processor.name in STAGE_MS and frame.direction == "downstream":
-                time.sleep(midpoint_s(processor.name) * SCALE)
+            start = self.clock.now
+            if processor.name in STAGE_MS and frame.direction == "downstream":
+                self.clock.advance(midpoint_s(processor.name))      # the stage doing its work
             original(frame)
-            elapsed = time.perf_counter() - start
+            elapsed = self.clock.now - start
             downstream = self._children.pop()
             self.self_seconds[processor.name] += elapsed - downstream
             if self._children:
@@ -76,22 +85,22 @@ def standard_pipeline() -> tuple[VAD, list[Processor], Transport]:
 
 
 def ex1_metrics_observer() -> None:
+    clock = Clock()
     source, stages, transport = standard_pipeline()
-    observer = MetricsObserver()
+    observer = MetricsObserver(clock)
     observer.attach(*stages)
-    start = time.perf_counter()
     for utterance in ("hello", "refund please", "hello", "refund please", "hello"):
         source.process(Frame("audio_chunk", utterance))
-    wall = time.perf_counter() - start
     total = sum(observer.self_seconds.values())
     for stage in stages:
-        share = observer.self_seconds[stage.name] / total
-        print(f"  {stage.name:<9} {observer.frames[stage.name]} frames, {observer.frames[stage.name] / wall:>5.1f} frames/s, "
-              f"{share:>4.0%} of pipeline time")
+        frames, seconds = observer.frames[stage.name], observer.self_seconds[stage.name]
+        print(f"  {stage.name:<9} {frames} frames, {frames / clock.now:.2f} frames/s, {seconds / frames * 1000:>4.0f} ms each, "
+              f"{seconds / total:>4.0%} of pipeline time")
     ranked = sorted(observer.self_seconds, key=observer.self_seconds.get, reverse=True)
-    print(f"  latency accumulates in: {ranked[0]}, then {ranked[1]}")
-    assert ranked[:2] == ["llm", "stt"] and len(transport.delivered) == 5
-    assert all(observer.frames[stage.name] == 5 for stage in stages)
+    print(f"  five turns took {clock.now:.3f} s; latency accumulates in: {ranked[0]}, then {ranked[1]}")
+    assert ranked == ["llm", "stt", "tts", "transport", "vad"] and len(transport.delivered) == 5
+    assert all(observer.frames[stage.name] == 5 for stage in stages) and abs(total - clock.now) < 1e-9
+    assert round((observer.self_seconds["vad"] + observer.self_seconds["transport"]) / total, 2) == 0.14
 
 
 # ---------------------------------------------------------------------------
@@ -268,9 +277,13 @@ def ex4_webrtc_transport_stub() -> None:
 class SpeechToSpeech(Processor):
     """One model hop: speech in, speech out, no text in between."""
 
+    def __init__(self, name: str, clock: Clock) -> None:
+        super().__init__(name)
+        self.clock = clock
+
     def process(self, frame: Frame) -> None:
         if frame.kind == "vad_speech":
-            time.sleep(midpoint_s("llm") * SCALE)
+            self.clock.advance(midpoint_s("llm"))
             super().process(Frame("tts_audio", REPLIES[str(frame.payload)].split()))
         else:
             super().process(frame)
@@ -283,21 +296,19 @@ def ex5_cascade_vs_speech_to_speech() -> None:
     print(f"  speech-to-speech  : {direct_ms[0]}-{direct_ms[1]} ms (assumed model hop)")
     print(f"  text-level control: +{cascade_ms[0] - direct_ms[0]}-{cascade_ms[1] - direct_ms[1]} ms per turn")
 
+    cascade_clock, direct_clock = Clock(), Clock()
     source, stages, _ = standard_pipeline()
-    MetricsObserver().attach(*stages)
-    start = time.perf_counter()
+    MetricsObserver(cascade_clock).attach(*stages)
     source.process(Frame("audio_chunk", "hello"))
-    cascade_s = time.perf_counter() - start
 
-    vad, model, transport = VAD("vad"), SpeechToSpeech("speech_model"), Transport("transport")
+    vad, model, transport = VAD("vad"), SpeechToSpeech("speech_model", direct_clock), Transport("transport")
     link(vad, model, transport)
-    MetricsObserver().attach(vad, transport)
-    start = time.perf_counter()
+    MetricsObserver(direct_clock).attach(vad, transport)
     vad.process(Frame("audio_chunk", "hello"))
-    direct_s = time.perf_counter() - start
-    print(f"  on the toy (1/10 scale): cascade {cascade_s * 1000:.0f} ms, speech-to-speech {direct_s * 1000:.0f} ms")
+    cascade_toy, direct_toy = round(cascade_clock.now * 1000), round(direct_clock.now * 1000)
+    print(f"  one turn through the toy, at the midpoints: cascade {cascade_toy} ms, speech-to-speech {direct_toy} ms")
     assert cascade_ms == [400, 990] and [c - d for c, d in zip(cascade_ms, direct_ms)] == [200, 450]
-    assert direct_s < cascade_s and transport.delivered == [REPLIES["hello"].split()]
+    assert (cascade_toy, direct_toy) == (695, 370) and transport.delivered == [REPLIES["hello"].split()]
 
 
 if __name__ == "__main__":
