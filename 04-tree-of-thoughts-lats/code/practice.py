@@ -177,6 +177,9 @@ def ex4_rollout_budget() -> None:
 
 # ---------------------------------------------------------------------------
 # Exercise 5 - when LATS helps less: a decision rule
+#
+# The paragraph is the answer. choose_search() is the same rule as a function
+# of the task's shape, so it can be checked against a few tasks.
 # ---------------------------------------------------------------------------
 
 DECISION_RULE = """\
@@ -191,8 +194,29 @@ DECISION_RULE = """\
   little, and with a noisy scorer it finds a well-scoring wrong answer."""
 
 
+def choose_search(one_try_usually_works: bool, reversible: bool, reliable_value: bool, tight_budget: bool) -> str:
+    if one_try_usually_works:
+        return "ReAct"
+    if reliable_value and reversible and not tight_budget:
+        return "LATS"
+    if reliable_value and tight_budget:
+        return "beam-search ToT"
+    return "ReAct + verifier"
+
+
 def ex5_decision_rule() -> None:
     print(DECISION_RULE)
+    tasks = {   # task: (one try usually works, reversible, reliable value signal, tight budget)
+        "look up one fact": (True, True, False, False),
+        "make a failing unit test pass in a sandbox": (False, True, True, False),
+        "Game of 24 on a small token budget": (False, True, True, True),
+        "book a flight": (False, False, True, False),
+        "pick the best match on a shopping site": (False, True, False, False),
+    }
+    choices = {task: choose_search(*shape) for task, shape in tasks.items()}
+    for task, choice in choices.items():
+        print(f"  {task:<43} -> {choice}")
+    assert list(choices.values()) == ["ReAct", "LATS", "beam-search ToT", "ReAct + verifier", "ReAct + verifier"]
 
 
 if __name__ == "__main__":

@@ -6,7 +6,9 @@ Run with:  python practice.py   (every exercise asserts its own result)
 
 from __future__ import annotations
 
+import importlib.util
 import math
+import os
 import random
 import re
 import time
@@ -45,8 +47,8 @@ FACTS = [
 # ---------------------------------------------------------------------------
 # Exercise 1 - an embedding store, and recall@10 across 1000 writes
 #
-# STAND-IN EMBEDDING: sentence-transformers is not installed here, so
-# hash_embed is a stdlib substitute - hashed character trigrams, normalised.
+# STAND-IN EMBEDDING: hash_embed is a stdlib substitute for a trained model
+# (which needs sentence-transformers): hashed character trigrams, normalised.
 # It captures spelling similarity ("prefers" ~ "preference"), not meaning
 # ("city" ~ "lisbon"). EmbeddingStore takes any `embed` function, so a trained
 # model drops in:  EmbeddingStore(lambda t: dict(enumerate(model.encode(t)))).
@@ -163,6 +165,8 @@ class TemporalMem0(Mem0):
             return super().search(query, user_id=user_id, top_k=top_k, **kwargs)
         # ponytail: recency is still measured from now rather than from as_of. Order among
         # the survivors is unaffected; pass `now` into the scorer if absolute scores matter.
+        # ponytail: the time filter runs after ranking, over the best 4 * top_k; filter inside
+        # the stores once newer records can crowd the old ones out of that window.
         hits = super().search(query, user_id=user_id, top_k=top_k * 4, **kwargs)
         return [(score, r) for score, r in hits if r.ts <= as_of][:top_k]
 
@@ -294,7 +298,7 @@ def ex4_feedback_fusion() -> None:
 #
 # Mem0Backend needs the mem0ai package and an OpenAI key, which Memory() uses
 # for fact extraction and embeddings. It follows the mem0 open-source
-# quickstart. Without them only the toy column is printed.
+# quickstart.
 # ---------------------------------------------------------------------------
 
 class ToyBackend:
@@ -329,20 +333,26 @@ def hit_rate_at_3(backend: ToyBackend | Mem0Backend) -> float:
     return hits / len(FACTS)
 
 
-def ex5_mem0_port() -> None:
+def ex5_mem0_port() -> str | None:
     toy = hit_rate_at_3(ToyBackend())
     print(f"  toy Mem0 (token overlap) : hit@3 {toy:.2f} on {len(FACTS)} queries")
-    try:
-        print(f"  mem0 client              : hit@3 {hit_rate_at_3(Mem0Backend()):.2f}")
-    except Exception as error:      # not installed, or no model key configured
-        print(f"  mem0 client              : unavailable ({type(error).__name__}: {error})")
     assert 0 < toy < 1
+    if importlib.util.find_spec("mem0") is None:
+        print("  needs mem0ai: pip install mem0ai")
+        return "mem0ai"
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("  mem0 client              : set OPENAI_API_KEY to enable")
+        return None
+    print(f"  mem0 client              : hit@3 {hit_rate_at_3(Mem0Backend()):.2f}")
+    return None
 
 
 if __name__ == "__main__":
     print("Phase 14 - Lesson 09: Hybrid Memory - exercises")
+    outcomes = []
     for exercise in (ex1_embedding_recall, ex2_temporal_search, ex3_conflict_detector,
                      ex4_feedback_fusion, ex5_mem0_port):
         print(f"\n{exercise.__name__}")
-        exercise()
-    print("\nall checks passed")
+        outcomes.append(exercise())
+    missing = [outcome for outcome in outcomes if outcome]
+    print("\nall exercises passed" if not missing else f"\nall checks passed; install {', '.join(missing)} for the rest")

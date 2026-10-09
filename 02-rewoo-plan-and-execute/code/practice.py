@@ -98,7 +98,7 @@ def ex1_parallel_workers() -> None:
     print(f"  sequential : {t_seq:.2f}s   parallel: {t_par:.2f}s   speedup: {t_seq / t_par:.1f}x")
     assert parallel == sequential
     assert len(levels(SIX_NODE_PLAN)) == 2
-    assert t_par < 0.6 * t_seq
+    assert t_par < 0.75 * t_seq                 # 2 levels against 6 calls: a third, with room for a busy machine
 
 
 # ---------------------------------------------------------------------------

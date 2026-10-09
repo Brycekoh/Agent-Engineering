@@ -236,8 +236,8 @@ def ex3_timeout_and_breaker() -> None:
 # ---------------------------------------------------------------------------
 # Exercise 4 - a BFCL-style multi-turn run: 10 conversations, pass rate
 #
-# NOT BFCL: the real benchmark and a real model are not on this machine. The
-# ten conversations are mine and RuleAgent is a regex policy. What carries over
+# SYNTHETIC CONVERSATIONS and a SCRIPTED AGENT, in BFCL's style: the ten
+# conversations are mine and RuleAgent is a regex policy. What carries over
 # is the scoring idea from BFCL V3+: judge the state the conversation ends in,
 # not the syntax of each call.
 #
@@ -298,7 +298,7 @@ def ex4_multi_turn_eval() -> None:
 # ---------------------------------------------------------------------------
 # Exercise 5 - port the validator to Pydantic
 #
-# Needs pydantic; the exercise skips itself where it is not installed.
+# Needs pydantic (pip install pydantic).
 # Measured with pydantic 2.13 on the eight cases below:
 #   - Pydantic caught two things the toy let through: "nan" against a
 #     minimum/maximum, and wrong item types inside an array (the toy only
@@ -342,6 +342,7 @@ def ex5_pydantic_port() -> str | None:
         ("array item types", SCORE, ScoreArgs, {"p": 0.5, "tags": [1, None]}),
         ("bool for number", SCORE, ScoreArgs, {"p": True}),
     ]
+    verdicts = {}
     for label, schema, model, args in cases:
         toy_ok = not validate(args, schema)[1]
         try:
@@ -349,9 +350,14 @@ def ex5_pydantic_port() -> str | None:
             pydantic_ok = True
         except ValidationError:
             pydantic_ok = False
+        verdicts[label] = (toy_ok, pydantic_ok)
         note = "" if toy_ok == pydantic_ok else "   <- they disagree"
         print(f"  {label:<19} toy: {'accept' if toy_ok else 'reject'}   "
               f"pydantic: {'accept' if pydantic_ok else 'reject'}{note}")
+    disagreements = {label: verdict for label, verdict in verdicts.items() if verdict[0] != verdict[1]}
+    assert disagreements == {"nan against bounds": (True, False), "array item types": (True, False),
+                             "bool for number": (False, True)}
+    assert verdicts["underscore int"] == (True, True)
     return None
 
 
