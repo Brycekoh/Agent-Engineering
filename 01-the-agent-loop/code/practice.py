@@ -2,12 +2,15 @@
 
 Solves the five exercises from docs/en.md on top of main.py in this folder.
 Run with:  python practice.py   (every exercise asserts its own result)
+           python practice.py --live   (exercise 4 also calls the Responses API: needs the openai
+                                        package and OPENAI_API_KEY)
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -166,8 +169,9 @@ def ex3_malformed_args() -> None:
 # is to replay them, together with the tool call they belong to, on the next
 # request. The control flow - observe, think, act - is untouched.
 #
-# ResponsesLLM needs the openai package and an OPENAI_API_KEY. Without a key,
-# ex4 checks the transcript shape with the toy model only.
+# ResponsesLLM needs the openai package and an OPENAI_API_KEY, and the call is
+# made only with --live on the command line, so a plain run spends nothing.
+# Without it ex4 checks the transcript shape with the toy model only.
 # ---------------------------------------------------------------------------
 
 CALCULATOR_SCHEMA = {
@@ -225,8 +229,8 @@ def ex4_reasoning_channel() -> None:
     assert all(t == "" for t in thoughts) and len(side_channel) == 5
     assert final == "the total including 15% tax is 138.0"
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("  live Responses API call  : set OPENAI_API_KEY to enable")
+    if "--live" not in sys.argv or not os.environ.get("OPENAI_API_KEY"):
+        print("  live Responses API call  : run with --live and OPENAI_API_KEY set")
         return
     tools = ToolRegistry()
     tools.register("calculator", calculator)

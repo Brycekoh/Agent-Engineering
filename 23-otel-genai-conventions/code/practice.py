@@ -2,6 +2,7 @@
 
 Solves the five exercises from docs/en.md on top of main.py in this folder.
 Run with:  python practice.py   (every exercise asserts its own result)
+           python practice.py --live   (exercise 1 also posts its spans to OTEL_EXPORTER_OTLP_ENDPOINT)
 """
 
 from __future__ import annotations
@@ -46,8 +47,8 @@ def load_lesson(folder: str, name: str) -> Any:
 #
 # Jaeger takes OTLP over HTTP (JSON on port 4318, path /v1/traces). The
 # payload is posted to a small local collector so the exchange can be
-# checked, and to OTEL_EXPORTER_OTLP_ENDPOINT as well when that is set, which
-# is how it reaches a running Jaeger.
+# checked, and to OTEL_EXPORTER_OTLP_ENDPOINT as well when that is set and
+# --live is on the command line, which is how it reaches a running Jaeger.
 # ---------------------------------------------------------------------------
 
 def traced_react_run(tracer: Tracer, question: str) -> str:
@@ -146,7 +147,7 @@ def ex1_instrument_and_export() -> None:
     assert len(tool_spans) == 5 and all(s["parentSpanId"] == agent_span["spanId"] for s in tool_spans)
 
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    if endpoint:
+    if endpoint and "--live" in sys.argv:
         print(f"  also sent to {endpoint}: HTTP {send_otlp(payload, endpoint)}")
 
 

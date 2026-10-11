@@ -2,6 +2,8 @@
 
 Solves the five exercises from docs/en.md on top of main.py in this folder.
 Run with:  python practice.py   (every exercise asserts its own result)
+           python practice.py --live   (exercise 1 also sends its spans to Langfuse: needs
+                                        LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY)
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import os
 import random
 import re
 import sqlite3
+import sys
 import time
 import urllib.request
 from collections import Counter
@@ -54,7 +57,7 @@ def week_of_traces(seed: int = 0, per_day: int = 30, new_prompt_from_day: int | 
 # takes OTLP over HTTP at /api/public/otel/v1/traces with Basic auth made from
 # the project's public and secret key, and groups spans by the session.id
 # attribute. It is sent when LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are
-# set.
+# set and --live is on the command line.
 # ---------------------------------------------------------------------------
 
 def to_otlp(spans: list[SpanEvent]) -> dict[str, Any]:
@@ -94,11 +97,11 @@ def ex1_week_of_traces() -> None:
     request = langfuse_request(spans, os.environ.get("LANGFUSE_PUBLIC_KEY", "pk-lf-example"),
                                os.environ.get("LANGFUSE_SECRET_KEY", "sk-lf-example"))
     assert request.full_url.endswith("/api/public/otel/v1/traces") and request.get_header("Authorization").startswith("Basic ")
-    if os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY"):
+    if "--live" in sys.argv and os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY"):
         with urllib.request.urlopen(request, timeout=30) as response:
             print(f"  exported {len(spans)} spans to Langfuse: HTTP {response.status}")
     else:
-        print(f"  Langfuse export ready ({len(spans)} spans); set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY to send")
+        print(f"  Langfuse export ready ({len(spans)} spans); run with --live and LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY set to send")
 
 
 # ---------------------------------------------------------------------------

@@ -184,9 +184,10 @@ def ex3_board_as_json_lines() -> None:
 #
 # It is also run on the capstone pack as the course ships it (lesson 42).
 # There every document AGENTS.md points to exists, and the two files it
-# reports are the state file and the board, which the pack's installer
-# creates in the target repository. So the linter belongs on an installed
-# workbench; the pack on its own shelf needs a check of its own.
+# reports are the state file and the board. The pack ships neither, and its
+# installer does not create them: state is left to the repository. So a
+# freshly installed workbench fails this lint too, until someone writes those
+# two files, and the pack on its own shelf needs a check of its own.
 # ---------------------------------------------------------------------------
 
 MAX_LINES = 80
@@ -228,7 +229,7 @@ def ex4_lint_workbench() -> None:
     assert fixed == (0, "workbench ok") and long[0] == 1 and "limit 80" in long[1]
 
     shipped = lint_workbench(REPO / "42-agent-workbench-capstone" / "outputs" / "agent-workbench-pack")
-    print(f"  the capstone pack as shipped: {len(shipped)} problems, both files the installer creates")
+    print(f"  the capstone pack as shipped: {len(shipped)} problems, the state file and the board it leaves to the repository")
     assert shipped == ["AGENTS.md references agent_state.json, which does not exist",
                        "AGENTS.md references task_board.json, which does not exist"]
 

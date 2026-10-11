@@ -2,6 +2,8 @@
 
 Solves the five exercises from docs/en.md on top of main.py in this folder.
 Run with:  python practice.py   (every exercise asserts its own result)
+           python practice.py --live   (exercise 5 also runs the mem0 client: needs the mem0ai
+                                        package and OPENAI_API_KEY)
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import math
 import os
 import random
 import re
+import sys
 import time
 import zlib
 from collections import Counter
@@ -298,7 +301,8 @@ def ex4_feedback_fusion() -> None:
 #
 # Mem0Backend needs the mem0ai package and an OpenAI key, which Memory() uses
 # for fact extraction and embeddings. It follows the mem0 open-source
-# quickstart.
+# quickstart, and runs only with --live on the command line, so a plain run
+# spends nothing.
 # ---------------------------------------------------------------------------
 
 class ToyBackend:
@@ -340,8 +344,8 @@ def ex5_mem0_port() -> str | None:
     if importlib.util.find_spec("mem0") is None:
         print("  needs mem0ai: pip install mem0ai")
         return "mem0ai"
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("  mem0 client              : set OPENAI_API_KEY to enable")
+    if "--live" not in sys.argv or not os.environ.get("OPENAI_API_KEY"):
+        print("  mem0 client              : run with --live and OPENAI_API_KEY set")
         return None
     print(f"  mem0 client              : hit@3 {hit_rate_at_3(Mem0Backend()):.2f}")
     return None

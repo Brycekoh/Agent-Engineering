@@ -246,6 +246,8 @@ def ex4_trajectory_efficiency() -> None:
 # a lesson counts as covered when it has a practice.py with at least five
 # exercise functions. Lessons without one are the gap.
 # `python practice.py --run-suite` executes every covered lesson as a case.
+# A file that exits 0 after leaving exercises for a missing package is marked
+# PART, so the total cannot hide what its last line says (lesson 48, exercise 5).
 # ---------------------------------------------------------------------------
 
 def lesson_coverage() -> dict[str, int]:
@@ -262,13 +264,16 @@ def lesson_coverage() -> dict[str, int]:
     return coverage
 
 
-def run_lesson_cases() -> dict[str, bool]:
+def run_lesson_cases() -> dict[str, str]:
+    """lesson folder -> PASS, PART (exit 0, last line names a missing package) or FAIL."""
     here = Path(__file__).resolve()
     outcomes = {}
     for folder, exercises in lesson_coverage().items():
         practice = REPO / folder / "code" / "practice.py"
         if exercises and practice.resolve() != here:
-            outcomes[folder] = subprocess.run([sys.executable, str(practice)], capture_output=True).returncode == 0
+            done = subprocess.run([sys.executable, str(practice)], capture_output=True, text=True, errors="replace")
+            last = (done.stdout.strip().splitlines() or [""])[-1]
+            outcomes[folder] = "FAIL" if done.returncode else "PART" if last.endswith("for the rest") else "PASS"
     return outcomes
 
 
@@ -280,7 +285,7 @@ def ex5_lesson_coverage() -> None:
           f"{sum(coverage.values())} exercise checks in total")
     print(f"  covered: {covered[0]} ... {covered[-1]}")
     print(f"  gaps to close ({len(gaps)}): {', '.join(name[:2] for name in gaps) or 'none'}")
-    assert all(coverage[name] >= 5 for name in coverage if int(name[:2]) <= 40)
+    assert not gaps and len(covered) == len(coverage)
     assert "30-eval-driven-agent-development" in covered
 
 
@@ -291,10 +296,12 @@ if __name__ == "__main__":
         sys.exit(code)
     if "--run-suite" in sys.argv:
         outcomes = run_lesson_cases()
-        for folder, passed in outcomes.items():
-            print(f"  {'PASS' if passed else 'FAIL'}  {folder}")
-        print(f"{sum(outcomes.values())} of {len(outcomes)} lesson cases pass")
-        sys.exit(0 if all(outcomes.values()) else 1)
+        for folder, outcome in outcomes.items():
+            print(f"  {outcome}  {folder}")
+        failed, partial = (sum(outcome == kind for outcome in outcomes.values()) for kind in ("FAIL", "PART"))
+        print(f"{len(outcomes) - failed} of {len(outcomes)} lesson cases pass"
+              + (f", {partial} of them with exercises left for a missing package" if partial else ""))
+        sys.exit(1 if failed else 0)
     print("Phase 14 - Lesson 30: Eval-Driven Agent Development - exercises")
     for exercise in (ex1_failure_as_eval_case, ex2_rubric_on_fifty_sessions, ex3_ci_gate, ex4_trajectory_efficiency,
                      ex5_lesson_coverage):
