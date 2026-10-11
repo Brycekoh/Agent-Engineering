@@ -9,6 +9,7 @@ returns an empty string when it runs out of hops, and three practice files asser
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from main import WorkUnit, conflicts, delegation_plan, paths_overlap, waves
@@ -78,10 +79,17 @@ def ex1_two_units_and_an_integrator() -> None:
 # passes its own check and fails the other's: one says "max hops ... exceeded"
 # and is tested for "max hops", the other says "handoff limit reached" and is
 # tested for "limit". Two workers, no shared file, one undecided contract.
-# The receipts below are the four lines.
+# The two wordings and the two tested words are read out of those four lines
+# of the two files, and the receipts say where they are.
 # ---------------------------------------------------------------------------
 
 RELIES_ON = {"runner": {"what a used-up run gives back"}, "check": {"what a used-up run gives back"}}
+
+
+def quoted(path: str, anchor: str, pattern: str) -> str:
+    """What the pattern captures in the first line of that file that contains the anchor."""
+    line = next(line for line in (REPO / path).read_text(encoding="utf-8").splitlines() if anchor in line)
+    return re.search(pattern, line)[1]
 
 
 def undecided_between(parallel: list[WorkUnit], relies_on: dict[str, set[str]], decided: set[str]) -> dict[str, list[str]]:
@@ -105,15 +113,21 @@ def ex2_looks_independent() -> None:
     assert shared == {"what a used-up run gives back": ["check", "runner"]}
     assert undecided_between(split, RELIES_ON, decided={"what a used-up run gives back"}) == {}
 
-    fixes = {"lesson 19": "error: max hops (4) exceeded", "lesson 30": "handoff limit reached after 4 hops; escalating to a human"}
-    checks = {"lesson 19": lambda text: "max hops" in text, "lesson 30": lambda text: "limit" in text and bool(text.strip())}
-    lines = [receipt(BENCHMARK, 'error: max hops ({self.max_hops}) exceeded'), receipt(BENCHMARK, 'assert "max hops" in'),
-             receipt(EVALS, 'answer = "handoff limit reached after 4 hops'), receipt(EVALS, 'if "limit" in candidate')]
-    verdicts = {(fix, check): checks[check](fixes[fix]) for fix in fixes for check in checks}
+    anchors = {"lesson 19": (BENCHMARK, "error: max hops ({self.max_hops}) exceeded", 'assert "max hops" in'),
+               "lesson 30": (EVALS, 'answer = "handoff limit reached after 4 hops', 'if "limit" in candidate')}
+    says = {"lesson 19": quoted(*anchors["lesson 19"][:2], r'final_output = f"([^"]+)"').replace("{self.max_hops}", "4"),
+            "lesson 30": quoted(*anchors["lesson 30"][:2], r'answer = "([^"]+)"')}
+    tests_for = {"lesson 19": quoted(BENCHMARK, anchors["lesson 19"][2], r'assert "([^"]+)" in'),
+                 "lesson 30": quoted(EVALS, anchors["lesson 30"][2], r'if "([^"]+)" in candidate')}
+    lines = [receipt(path, anchor) for path, *both in anchors.values() for anchor in both]
+    for lesson in says:
+        print(f"  {lesson} gives back '{says[lesson]}' and tests for '{tests_for[lesson]}'")
+    verdicts = {(fix, check): tests_for[check] in says[fix] for fix in says for check in tests_for}
     for (fix, check), passed in verdicts.items():
         print(f"  {fix}'s fix against {check}'s check: {'pass' if passed else 'FAIL'}")
     print(f"  where those four lines are: {lines}")
-    assert all(lines) and [passed for passed in verdicts.values()] == [True, False, False, True]
+    assert all(lines) and len(lines) == 4 and [passed for passed in verdicts.values()] == [True, False, False, True]
+    assert tests_for == {"lesson 19": "max hops", "lesson 30": "limit"}
 
 
 # ---------------------------------------------------------------------------

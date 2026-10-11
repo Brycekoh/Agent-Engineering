@@ -215,7 +215,8 @@ def ex5_platform_component_waits() -> None:
     candidates = three_slices() + [platform]
     print(f"  as a slice: score {score(platform)} (best of {len(candidates)}), proves {list(platform.proves)}; chosen instead: {choose(candidates, REQUIRED).name}")
     run_main = [lesson for group in repeated["run_main"].values() for lesson in group]
-    assert len(run_main) == 11 and min(run_main) == "31" and len(repeated["run_main"]) == 1 and len(repeated["receipt"]) == 1
+    assert len(run_main) == 11 and min(run_main) == "31" and len(repeated["run_main"]) == 1
+    assert list(repeated["receipt"].values()) == [["43", "44", "45"]]
     assert score(platform) == max(score(item) for item in candidates) and choose(candidates, REQUIRED) == three_slices()[0]
     try:
         choose([platform], REQUIRED)

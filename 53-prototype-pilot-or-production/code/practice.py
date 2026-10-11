@@ -187,6 +187,11 @@ RESTS_ON = {   # production-only control -> the control it presupposes
 }
 
 
+def rests_on_in_the_end(control: str) -> str:
+    """Follow RESTS_ON down to the control that rests on nothing."""
+    return control if not RESTS_ON[control] else rests_on_in_the_end(RESTS_ON[control])
+
+
 def ex4_first_operational_responsibility() -> None:
     added = [control for control in required_controls("production") if control not in required_controls("pilot")]
     first = [control for control in added if not RESTS_ON[control]]
@@ -199,6 +204,7 @@ def ex4_first_operational_responsibility() -> None:
     print(f"  files in this repository that name someone answerable: {answerable or 'none'}")
     assert set(added) == set(RESTS_ON) and len(added) == 7 and first == ["on-call owner"]
     assert all(RESTS_ON[control] in added for control in added if RESTS_ON[control]) and stages == ["pilot", "production"]
+    assert {rests_on_in_the_end(control) for control in added} == {"on-call owner"}      # every one of the seven comes down to it
 
 
 # ---------------------------------------------------------------------------

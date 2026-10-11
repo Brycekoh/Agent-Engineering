@@ -92,15 +92,18 @@ CONTRACT = scope_lesson.ScopeContract(task_id="T-001", goal=GOAL, allowed_files=
 
 
 @functools.lru_cache(maxsize=None)
-def run_tests(app_source: str, test_source: str) -> int:
-    """Write the two files into a temp sample_app and run every test in it. Returns the exit code."""
+def run_tests(app_source: str, test_source: str, timeout: float = 30) -> int:
+    """Write the two files into a temp sample_app and run every test in it. Returns the exit code; a run that hangs is a failure."""
     runner = "import sample_app.test_app as t; [getattr(t, n)() for n in dir(t) if n.startswith('test_')]"
     with tempfile.TemporaryDirectory() as tmp:
         package = Path(tmp) / "sample_app"
         package.mkdir()
-        (package / "app.py").write_text(app_source)
-        (package / "test_app.py").write_text(test_source)
-        return subprocess.run([sys.executable, "-c", runner], cwd=tmp, capture_output=True, timeout=30).returncode
+        (package / "app.py").write_text(app_source, encoding="utf-8")       # Python reads source as UTF-8, whatever the platform default
+        (package / "test_app.py").write_text(test_source, encoding="utf-8")
+        try:
+            return subprocess.run([sys.executable, "-c", runner], cwd=tmp, capture_output=True, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            return 1
 
 
 @dataclass(frozen=True)
@@ -376,7 +379,9 @@ def ex3_false_negatives() -> None:
 # (model_app_source below) and runs it through the same harness. It needs the
 # anthropic package and Anthropic credentials, and every trial is two model
 # calls. It runs model-written code in a temp directory, as any coding agent
-# does when it runs tests.
+# does when it runs tests. A model can hand back two things the scripted
+# patches never do, and the harness is checked against both: characters
+# outside ASCII, and code that never returns.
 # ---------------------------------------------------------------------------
 
 def drawn_policy(rng: random.Random) -> Policy:
@@ -405,6 +410,10 @@ def ex4_noisier_outcomes() -> None:
     assert pinned == ["tests_actually_run", "files_outside_scope", "handoff_quality"]
     assert [name for name in SIX_OUTCOMES if moved["prompt-only"][name] == 1] == ["handoff_quality"]
     assert sum(run.acceptance_met for run in guided) > sum(run.acceptance_met for run in bare)
+    odd = {"a patch with a non-ASCII comment": run_tests(RIGHT_APP + "# caf\u00e9\n", NEW_TEST),
+           "a patch that never returns": run_tests("while True:\n    pass\n", NEW_TEST, timeout=1)}
+    print(f"  the harness on what a model can hand back: { {case: f'exit {code}' for case, code in odd.items()} }")
+    assert list(odd.values()) == [0, 1]
 
 
 def model_app_source() -> str:

@@ -6,7 +6,7 @@ Run with:  python practice.py   (every exercise asserts its own result)
            python practice.py --uninstall <target> [--force]              (exercise 3 as a command)
            python practice.py --lint-pack <pack> [target]                 (exercise 4 as a command)
 The pack used throughout is the one the course ships in ../outputs; it is only read. Everything is
-installed into temp directories. Part of exercise 2 needs bash, and part of exercise 3 needs git.
+installed into temp directories. Parts of exercises 2 and 3 need bash, and part of exercise 3 needs git.
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
-PACK = REPO / "42-agent-workbench-capstone" / "outputs" / "agent-workbench-pack"
+SHIPPED_IN = Path(__file__).resolve().parents[1]        # the pack's root, when this file is shipped inside a pack as bin/uninstall.py
+PACK = SHIPPED_IN if (SHIPPED_IN / "VERSION").is_file() else REPO / "42-agent-workbench-capstone" / "outputs" / "agent-workbench-pack"
 SURFACE = ("AGENTS.md", "docs", "schemas", "scripts")
 LOCK = ".workbench-version"
 STATE_FILES = ("agent_state.json", "task_board.json", "feedback_record.jsonl")
@@ -67,8 +68,9 @@ def run_script(target: Path, script: str, *args: str) -> tuple[int, str]:
 #   - install.sh needs bash, which on Windows means Git Bash or WSL. The
 #     pack's four scripts already need Python, so a Python installer adds no
 #     requirement;
-#   - install.sh is 30 lines with nothing to import, and anyone can read it
-#     in a minute. That is worth something, and it is the only thing lost.
+#   - install.sh is one page of shell with nothing to import, and anyone can
+#     read it in a minute. That is worth something, and it is the only thing
+#     lost.
 # ---------------------------------------------------------------------------
 
 class Refused(RuntimeError):
@@ -104,12 +106,12 @@ def find_bash() -> str | None:
     return next((found for found in candidates if found and Path(found).exists() and "system32" not in found.lower()), None)
 
 
-def bash_installs(runs: list[tuple[Path, str]]) -> list[int] | None:
-    """Run the pack's own bin/install.sh once per (target, flags), in one shell. Exit codes, or None without bash."""
-    bash, script = find_bash(), (PACK / "bin" / "install.sh").as_posix()
+def bash_runs(script: Path, runs: list[tuple[Path, str]]) -> list[int] | None:
+    """Run a shell script once per (directory to run it in, flags), in one shell. Exit codes, or None without bash."""
+    bash, python = find_bash(), Path(sys.executable).as_posix()
     if bash is None:
         return None
-    lines = [f'cd "{target.as_posix()}" && bash "{script}" {flags}; echo "exit:$?"' for target, flags in runs]
+    lines = [f'cd "{target.as_posix()}" && PYTHON="{python}" bash "{script.as_posix()}" {flags}; echo "exit:$?"' for target, flags in runs]
     done = subprocess.run([bash, "-c", "\n".join(lines)], capture_output=True, text=True, timeout=120)
     codes = [int(code) for code in re.findall(r"^exit:(\d+)$", done.stdout, re.M)]
     return codes if len(codes) == len(runs) else None
@@ -134,14 +136,15 @@ def ex2_python_installer() -> str | None:
         print(f"  second install without --force: {second}")
         assert planned == written and set(written) == set(tree(targets["python"])) and second.startswith("refused")
 
-        codes = bash_installs([(targets["bash"], ""), (targets["bash"], ""), (targets["unknown-flag"], "--dry-run"),
-                               (targets["bash"], "--verbose --force")])
+        codes = bash_runs(PACK / "bin" / "install.sh", [(targets["bash"], ""), (targets["bash"], ""), (targets["unknown-flag"], "--dry-run"),
+                                                        (targets["bash"], "--verbose --force")])
         if codes is None or codes[0] != 0:
             print("  needs bash for the comparison with bin/install.sh")
             return "bash"
         first, again, dry, late_force = codes
         same = tree(targets["bash"]) == tree(targets["python"])
-        print(f"  install.sh leaves the same {len(tree(targets['bash']))} files, byte for byte: {same}; a second run exits {again}")
+        shell_lines = len((PACK / "bin" / "install.sh").read_text(encoding="utf-8").splitlines())
+        print(f"  install.sh ({shell_lines} lines) leaves the same {len(tree(targets['bash']))} files, byte for byte: {same}; a second run exits {again}")
         print(f"  install.sh --dry-run: exit {dry}, files written {len(tree(targets['unknown-flag']))}")
         print(f"  install.sh --verbose --force on an installed repo: exit {late_force}")
         assert same and again == 1
@@ -248,15 +251,18 @@ def ex1_fifth_doc() -> None:
 # Any of these refuses the uninstall until the work is closed out, or until
 # someone passes --force and owns the consequence.
 #
-# In the pack this ships as bin/uninstall.py, with the three-line
-# bin/uninstall.sh below in front of it, the way the pack's own scripts are
-# Python. `python practice.py --uninstall <target>` runs the same function.
+# In the pack this ships as bin/uninstall.py (this file under that name: it
+# finds the pack it sits in), with the three-line bin/uninstall.sh below in
+# front of it, the way the pack's own scripts are Python. Where bash is
+# available both are shipped into a copy of the pack and the shell script is
+# run from there. `python practice.py --uninstall <target>` runs the same
+# function.
 # ---------------------------------------------------------------------------
 
 UNINSTALL_SH = """\
 #!/usr/bin/env bash
 set -euo pipefail
-exec python3 "$(cd "$(dirname "$0")" && pwd)/uninstall.py" --uninstall "$(pwd)" "$@"
+exec "${PYTHON:-python3}" "$(cd "$(dirname "$0")" && pwd)/uninstall.py" --uninstall "$(pwd)" "$@"
 """
 
 
@@ -332,20 +338,34 @@ def ex3_uninstall() -> str | None:
         assert outcome == "refused: task T-002 is active" and (busy / "AGENTS.md").exists()
         assert uninstall(PACK, busy, force=True)[0] and not (busy / "AGENTS.md").exists()
 
+        missing = []
+        shipped = shutil.copytree(PACK, Path(tmp) / "pack")                         # a pack that ships the uninstaller
+        (shipped / "bin" / "uninstall.sh").write_text(UNINSTALL_SH, newline="\n")
+        shutil.copy(__file__, shipped / "bin" / "uninstall.py")
+        at_rest, at_work = installed_repo(Path(tmp) / "at-rest", idle), installed_repo(Path(tmp) / "at-work", {**idle, "active_task_id": "T-002"})
+        codes = bash_runs(shipped / "bin" / "uninstall.sh", [(at_rest, ""), (at_work, ""), (at_work, "--force")])
+        if codes is None:
+            print("  needs bash to run bin/uninstall.sh")
+            missing.append("bash")
+        else:
+            print(f"  bin/uninstall.sh run with bash from a pack that ships it: idle exit {codes[0]}, task active exit {codes[1]}, --force exit {codes[2]}")
+            assert codes == [0, 1, 0] and not (at_rest / "AGENTS.md").exists() and not (at_work / "AGENTS.md").exists()
+            assert (at_rest / "docs" / "agent-rules.md").exists() and (at_rest / "agent_state.json").exists()      # edited rules and state are kept
+
         if not shutil.which("git"):
             print("  needs git for the uncommitted-changes check")
-            return "git"
-        tracked = installed_repo(Path(tmp) / "tracked", idle)
-        identity = ["-c", "user.name=practice", "-c", "user.email=practice@example.invalid", "-c", "commit.gpgsign=false"]
-        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "workbench installed"]):
-            subprocess.run(["git", *identity, *args], cwd=tracked, capture_output=True, check=True)
-        assert stranded_by_removal(tracked) == []
-        (tracked / "agent_state.json").write_text(json.dumps({**idle, "next_action": "write the release notes"}))
-        reasons = stranded_by_removal(tracked)
-        print(f"  state edited and not committed: refused: {reasons[0]}")
-        assert reasons == ["uncommitted changes in ['agent_state.json']"]
-    assert "--uninstall" in UNINSTALL_SH
-    return None
+            missing.append("git")
+        else:
+            tracked = installed_repo(Path(tmp) / "tracked", idle)
+            identity = ["-c", "user.name=practice", "-c", "user.email=practice@example.invalid", "-c", "commit.gpgsign=false"]
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "workbench installed"]):
+                subprocess.run(["git", *identity, *args], cwd=tracked, capture_output=True, check=True)
+            assert stranded_by_removal(tracked) == []
+            (tracked / "agent_state.json").write_text(json.dumps({**idle, "next_action": "write the release notes"}))
+            reasons = stranded_by_removal(tracked)
+            print(f"  state edited and not committed: refused: {reasons[0]}")
+            assert reasons == ["uncommitted changes in ['agent_state.json']"]
+    return ", ".join(missing) or None
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +380,9 @@ def ex3_uninstall() -> str | None:
 #
 # The pack as shipped is clean. The workflow below is for the pack's own
 # repository and is kept as text; copy it to .github/workflows/ to use it.
+# lint_pack.py is this file under that name: its --lint-pack command needs
+# nothing else from the lesson. The workflow's run step is executed below in
+# a copy of the pack, the way a checkout would run it.
 # ---------------------------------------------------------------------------
 
 WORKFLOW = """\
@@ -429,10 +452,13 @@ def ex4_lint_pack() -> None:
         print(f"  an installed repo against a newer pack: {stale[-1]}")
         assert stale[-1] == f"installed/{LOCK} is 1.0.0, the pack is 1.1.0"
 
-        as_ci = [subprocess.run([sys.executable, __file__, "--lint-pack", str(pack)], capture_output=True, text=True).returncode
-                 for pack in (PACK, cases["VERSION bumped to 2.0.0 only"])]
-    print(f"  as a CI step: exit {as_ci[0]} on the shipped pack, exit {as_ci[1]} on the drifted one")
-    assert as_ci == [0, 1] and "--lint-pack" in WORKFLOW
+        step = re.search(r"- run: python (.+)", WORKFLOW)[1].split()         # the workflow's own step
+        as_ci = []
+        for checkout in (shutil.copytree(PACK, root / "checkout"), cases["VERSION bumped to 2.0.0 only"]):
+            shutil.copy(__file__, checkout / "lint_pack.py")
+            as_ci.append(subprocess.run([sys.executable, *step], cwd=checkout, capture_output=True, text=True).returncode)
+    print(f"  the workflow's step (python {' '.join(step)}): exit {as_ci[0]} in a checkout of the shipped pack, exit {as_ci[1]} in the drifted one")
+    assert as_ci == [0, 1] and step == ["lint_pack.py", "--lint-pack", "."]
 
 
 # ---------------------------------------------------------------------------

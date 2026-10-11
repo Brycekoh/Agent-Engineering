@@ -230,7 +230,9 @@ def ex4_split_the_allowed_path() -> None:
 # second acceptance command: the changed file names go in, and it exits 1 if
 # any of them is outside the allowed set or inside a forbidden one. It is
 # evidence about the diff, produced by a command, like every other fact in
-# the frame.
+# the frame. Given no file names at all it refuses: an empty list usually
+# means the command in front of the pipe failed, and a receipt that vouches
+# for nothing would pass every time.
 # ---------------------------------------------------------------------------
 
 def final_frame() -> TaskFrame:
@@ -240,6 +242,8 @@ def final_frame() -> TaskFrame:
 
 
 def scope_receipt(frame: TaskFrame, touched: list[str]) -> tuple[bool, str]:
+    if not touched:
+        return False, "no changed files were given, so there is nothing to vouch for"
     forbidden = covered(frame.forbidden_paths, touched)
     outside = [name for name in touched if name not in covered(frame.allowed_paths, touched) and name not in forbidden]
     summary = f"{len(touched)} files changed, {len(outside)} outside the allowed paths {outside}, {len(forbidden)} forbidden {forbidden}"
@@ -250,14 +254,15 @@ def ex5_scope_receipt() -> None:
     frame = final_frame()
     diffs = {"the four files the frame allows": frame.allowed_paths,
              "the fix plus a tidy-up of the docs": [RUNNER, "16-openai-agents-sdk/docs/en.md"],
-             "the fix plus an unrelated lesson": [RUNNER, "17-claude-agent-sdk/code/main.py"]}
+             "the fix plus an unrelated lesson": [RUNNER, "17-claude-agent-sdk/code/main.py"],
+             "nothing at all": []}
     codes = {}
     for label, touched in diffs.items():
         done = subprocess.run([sys.executable, __file__, "--scope-receipt"], input="\n".join(touched), capture_output=True, text=True)
         codes[label] = done.returncode
         print(f"  {label:<35} exit {done.returncode}: {done.stdout.strip()}")
     print(f"  acceptance evidence: {len(frame.acceptance)} commands; frame status {render(frame).splitlines()[2]}")
-    assert list(codes.values()) == [0, 1, 1] and validate(frame) == []
+    assert list(codes.values()) == [0, 1, 1, 1] and validate(frame) == []
     assert frame.acceptance == [ACCEPTANCE, SCOPE_RECEIPT] and "--scope-receipt" in render(frame)
 
 
